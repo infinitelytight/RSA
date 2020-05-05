@@ -35,14 +35,18 @@ isPrime k | k < 2     = False
           | otherwise = null [x | x <- [2..isqrt k], k `mod` x == 0]
     where isqrt = floor . sqrt . fromIntegral
 
-getPrime :: Integer -> IO Integer
-getPrime n = do
+-- Generates random n-bit prime
+randPrime :: Int -> IO Integer
+randPrime n = do
     r <- randomRIO (2 ^ n, (2 ^ (n + 1)) - 1)
-    if (isPrime r) then return r else getPrime n
+    if (isPrime r) then return r else randPrime n
 
 ----------------------
 --  Key generation  --
 ----------------------
+
+data Key = Public (Integer, Integer) | Private (Integer, Integer)
+    deriving (Eq, Ord, Show)
 
 -- Public key exponent, e, is coprime to λ(n) (e is usually set to 65,537)
 pubExp :: Integer -> Integer
@@ -63,15 +67,22 @@ pubExp m = head [n | n <- [3..m - 1] , coprime n m]
 privExp :: Integer -> Integer -> Integer
 privExp e m = mmi e m
 
--- Returns key pair (public key, private key)
-keygen :: ((Integer, Integer), (Integer, Integer))
-keygen = ((e, n), (d, n))
-    where p = 11 -- randPrime
-          q = 13 -- randPrime
-          n = p * q -- modulus
+-- Returns all key components (n, e, and d) from two primes
+keygen :: Integer -> Integer -> (Integer, Integer, Integer)
+keygen p q = (e, d, n)
+    where n = p * q       -- modulus
           m = totient p q -- λ(n)
-          e = pubExp m
-          d = privExp e m
+          e = pubExp m    -- public key
+          d = privExp e m -- private key
+
+-- Returns n-bit public-private keypair
+keyPair :: Int -> IO (Key, Key)
+keyPair keySize = do
+    let bits = keySize `div` 2
+    p <- randPrime bits
+    q <- randPrime bits
+    let (e, d, n) = keygen p q
+    return $ (Public (e, n), Private (d, n))
 
 ---------------------------------
 --  Encryption and decryption  --
@@ -86,28 +97,26 @@ encode = map (fromIntegral . ord)
 decode :: [Integer] -> String
 decode = map (chr . fromIntegral)
 
-encrypt :: String -> (Integer, Integer) -> [Integer]
-encrypt plaintext (e, n) = map (\p -> p^e `mod` n) (encode plaintext)
+encrypt :: String -> Key -> [Integer]
+encrypt plaintext (Public (e, n)) = map (\p -> p^e `mod` n) (encode plaintext)
 
-decrypt :: [Integer] -> (Integer, Integer) -> [Integer]
-decrypt ciphertext (d, n) = map (\c -> c^d `mod` n) ciphertext
+decrypt :: [Integer] -> Key -> [Integer]
+decrypt ciphertext (Private (d, n)) = map (\c -> c^d `mod` n) ciphertext
 
 ------------
 --  Test  --
 ------------
 
--- TODO generate key with random seed
-pubKey = fst keygen
-privKey = snd keygen
-
+keysize = 16
 plaintext = "hello"
 encoded = encode plaintext
-ciphertext = encrypt plaintext pubKey
-decrypted = decrypt ciphertext privKey
-decoded = decode decrypted
 
-_main = print plaintext
-    *> print encoded
-    *> print ciphertext
-    *> print decrypted
-    *> print decoded
+main = keyPair 16 >>= (\(pub, priv) -> do
+    let ciphertext = encrypt plaintext pub
+        decrypted = decrypt ciphertext priv
+        decoded = decode decrypted
+    print plaintext
+      *> print encoded
+      *> print ciphertext
+      *> print decrypted
+      *> print decoded)
