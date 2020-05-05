@@ -27,6 +27,14 @@ mmi a m = fst (eea a m) `mod` m
 totient :: Integral a => a -> a -> a
 totient x y = lcm (x - 1) (y - 1)
 
+-- Modular exponentiation, x = a^e mod m (recursive; x starts with 1)
+modExp :: Integral a => a -> a -> a -> a -> a
+modExp a e m x | e <= 0    = x
+               | otherwise = modExp a' e' m x'
+             where a' = a * a `mod` m
+                   e' = e `div` 2
+                   x' = if e `mod` 2 == 1 then a * x `mod` m else x
+
 coprime :: Integral a => a -> a -> Bool
 coprime x y = egcd x y == 1
 
@@ -98,20 +106,20 @@ decode :: [Integer] -> String
 decode = map (chr . fromIntegral)
 
 encrypt :: String -> Key -> [Integer]
-encrypt plaintext (Public (e, n)) = map (\p -> p^e `mod` n) (encode plaintext)
+encrypt plaintext (Public (e, n)) = map (\p -> modExp p e n 1) (encode plaintext)
 
 decrypt :: [Integer] -> Key -> [Integer]
-decrypt ciphertext (Private (d, n)) = map (\c -> c^d `mod` n) ciphertext
+decrypt ciphertext (Private (d, n)) = map (\c -> modExp c d n 1) ciphertext
 
 ------------
 --  Test  --
 ------------
 
-keysize = 16
+keysize = 64
 plaintext = "hello"
 encoded = encode plaintext
 
-main = keyPair 16 >>= (\(pub, priv) -> do
+main = keyPair keysize >>= (\(pub, priv) -> do
     let ciphertext = encrypt plaintext pub
         decrypted = decrypt ciphertext priv
         decoded = decode decrypted
