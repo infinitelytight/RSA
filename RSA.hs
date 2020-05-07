@@ -1,5 +1,9 @@
-import Data.Char (ord, chr)
+module RSA where
+
+import Data.Char
 import System.Random
+import Numeric
+import Data.List
 
 ------------------------
 --  Helper functions  --
@@ -46,8 +50,11 @@ isPrime k | k < 2     = False
 -- Generates random n-bit prime
 randPrime :: Int -> IO Integer
 randPrime n = do
-    r <- randomRIO (2 ^ n, (2 ^ (n + 1)) - 1)
+    r <- randomRIO (2^n, (2^(n + 1)) - 1)
     if (isPrime r) then return r else randPrime n
+
+randInt :: Int -> Int -> IO Int
+randInt low high = randomRIO (low, high)
 
 ----------------------
 --  Key generation  --
@@ -96,35 +103,82 @@ keyPair keySize = do
 --  Encryption and decryption  --
 ---------------------------------
 
-join :: [Int] -> Integer
-join = read . concat . map show
+--join :: [Int] -> Integer
+--join = read . concat . map show
 
-encode :: String -> [Integer]
-encode = map (fromIntegral . ord)
+indexOf :: String -> String -> Maybe Int
+indexOf sub str = findIndex (isPrefixOf sub) (tails str)
 
-decode :: [Integer] -> String
-decode = map (chr . fromIntegral)
+-- Split string into chunks of size n
+chunks :: Int -> String -> [String]
+chunks n str = case splitAt n str of
+                 (a, b) | null a    -> []
+                        | otherwise -> a : chunks n b
 
-encrypt :: String -> Key -> [Integer]
-encrypt plaintext (Public (e, n)) = map (\p -> modExp p e n 1) (encode plaintext)
+--encode :: String -> [Integer]
+--encode = map (fromIntegral . ord)
+--
+--decode :: [Integer] -> String
+--decode = map (chr . fromIntegral)
+--
+--encrypt :: String -> Key -> [Integer]
+--encrypt plaintext (Public (e, n)) = map (\p -> modExp p e n 1) (encode plaintext)
+--
+--decrypt :: [Integer] -> Key -> [Integer]
+--decrypt ciphertext (Private (d, n)) = map (\c -> modExp c d n 1) ciphertext
 
-decrypt :: [Integer] -> Key -> [Integer]
-decrypt ciphertext (Private (d, n)) = map (\c -> modExp c d n 1) ciphertext
+decToHex :: (Show a, Integral a) => a -> String
+decToHex x = showIntAtBase 16 intToDigit x ""
 
-------------
---  Test  --
-------------
+hexToDec :: Integral a => String -> a
+hexToDec x = case readHex x of
+              (x, _):_ -> x
+              _        -> error "Invalid hex"
 
-keysize = 64
-plaintext = "hello"
-encoded = encode plaintext
+-- Converts string to byte array in hexadecimal notation
+bytes :: String -> [String]
+bytes x = map (decToHex . ord) x
 
-main = keyPair keysize >>= (\(pub, priv) -> do
-    let ciphertext = encrypt plaintext pub
-        decrypted = decrypt ciphertext priv
-        decoded = decode decrypted
-    print plaintext
-      *> print encoded
-      *> print ciphertext
-      *> print decrypted
-      *> print decoded)
+-- Big-endian conversion of a hex string to decimal
+bytesToInt :: String -> Integer
+bytesToInt [] = 0
+bytesToInt (x:xs) = c * (16 ^ length xs) + bytesToInt xs
+    where c = hexToDec [x]
+
+-- Armours hex-encoded bytes with random padding according to PKCS#1 v1.5.
+-- The scheme pads the bytes to match the modulus size. For RSA keys of
+-- bitlength 1024, this means padding to 64 bytes.
+-- The byte `02` indicates that the padding scheme is operating in mode 2.
+-- The byte `FF` signifies the start of the plaintext.
+pad :: [String] -> Int -> IO [String]
+pad xs bits = do
+    -- Two bytes are for the padding header ("02") and stop ("ff") bytes
+    let padLength = (bits `div` 16) - length xs - 2
+    -- "ff" (255 in decimal) should not be in the padding
+    randInts <- sequence $ replicate padLength (randInt 1 254)
+    let randBytes = map decToHex randInts
+    return $ "02" : randBytes ++ ["ff"] ++ xs
+
+-- Let plaintext = "key"
+-- 1) convert to bytes -> ["6b","65","79"]
+-- 2) add padding      -> ["02,"e6","ff","6b","65","79"] (96-bit key)
+-- 3) concat to hex    -> 0x02e6ff6b6579
+-- 4) convert to int   -> 3191150962041
+encode :: String -> Int -> IO Integer
+encode str keysize = do
+    padded <- pad (bytes str) keysize
+    let byteStr = concat padded
+    return $ bytesToInt byteStr
+
+-- Reverses encoding. First removes padding (all bytes to "ff") then converts
+-- numbers back to ASCII.
+decode :: Integer -> String
+decode x = do
+    let hex   = decToHex x
+        unpad = (\x -> drop (x + 2) hex) <$> indexOf "ff" hex
+        bytes = chunks 2 <$> unpad
+        dec   = map hexToDec <$> bytes
+        key   = map (chr . fromIntegral) <$> dec
+    case key of
+      Just k  -> k
+      Nothing -> error "Decode failed"
