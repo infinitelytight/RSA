@@ -5,9 +5,9 @@ import System.Random
 import Numeric
 import Data.List
 
-------------------------
---  Helper functions  --
-------------------------
+-----------------------------
+--  Mathematics functions  --
+-----------------------------
 
 -- Euclid's algorithm for calculating the greatest common divisor
 egcd :: (Integral a) => a -> a -> a
@@ -39,9 +39,11 @@ modExp a e m x | e <= 0    = x
                    e' = e `div` 2
                    x' = if e `mod` 2 == 1 then a * x `mod` m else x
 
+-- Test whether two numbers are coprime
 coprime :: Integral a => a -> a -> Bool
 coprime x y = egcd x y == 1
 
+-- Primality test by trial division (inefficient for large numbers)
 isPrime :: Integer -> Bool
 isPrime k | k < 2     = False
           | otherwise = null [x | x <- [2..isqrt k], k `mod` x == 0]
@@ -50,9 +52,11 @@ isPrime k | k < 2     = False
 -- Generates random n-bit prime
 randPrime :: Int -> IO Integer
 randPrime n = do
-    r <- randomRIO (2^n, (2^(n + 1)) - 1)
+    -- Integer is signed, so max value for n-bit prime is 2^n - 1
+    r <- randomRIO (2^(n - 1), 2^n - 1)
     if (isPrime r) then return r else randPrime n
 
+-- Random integer between `low` and `high` inclusive
 randInt :: Int -> Int -> IO Int
 randInt low high = randomRIO (low, high)
 
@@ -60,7 +64,8 @@ randInt low high = randomRIO (low, high)
 --  Key generation  --
 ----------------------
 
-data Key = Public (Integer, Integer) | Private (Integer, Integer)
+data Key = Public  { e :: Integer, n :: Integer }
+         | Private { d :: Integer, n :: Integer }
     deriving (Eq, Ord, Show)
 
 -- Public key exponent, e, is coprime to λ(n) (e is usually set to 65,537)
@@ -82,7 +87,7 @@ pubExp m = head [n | n <- [3..m - 1] , coprime n m]
 privExp :: Integer -> Integer -> Integer
 privExp e m = mmi e m
 
--- Returns all key components (n, e, and d) from two primes
+-- Returns all key components (e, d, and n) from two primes
 keygen :: Integer -> Integer -> (Integer, Integer, Integer)
 keygen p q = (e, d, n)
     where n = p * q       -- modulus
@@ -97,15 +102,62 @@ keyPair keySize = do
     p <- randPrime bits
     q <- randPrime bits
     let (e, d, n) = keygen p q
-    return $ (Public (e, n), Private (d, n))
+    return $ (Public {e = e, n = n}, Private {d = d , n = n})
+
+-- Returns the length of a key in bits, used to determine key size from modulus
+bitLength :: Integer -> Int
+bitLength x = floor $ (logBase 2 i) + 1
+    where i = fromIntegral x
 
 ---------------------------------
 --  Encryption and decryption  --
 ---------------------------------
 
---join :: [Int] -> Integer
---join = read . concat . map show
+-- Plaintext is a string that is commonly used as the key for some faster
+-- symmetric-key algorithm like AES to encrypt sensitive data
+encrypt :: String -> Key -> IO Integer
+encrypt plaintext (Public e n) = do
+    let keySize = bitLength n
+    print $ bitLength n
+    -- TODO
+    paddedMsg <- encode plaintext keySize
+    let ciphertext = modExp paddedMsg e n 1
+    return ciphertext
 
+-- Reverses encryption using private key
+decrypt :: Integer -> Key -> String
+decrypt ciphertext (Private d n) = decode $ modExp ciphertext d n 1
+
+---------------
+--  Testing  --
+---------------
+
+keys :: IO (Key, Key)
+keys = keyPair 32
+
+password :: String
+password = "m"
+
+ciphertext :: IO Integer
+ciphertext = do
+    ks <- keys
+    let pub = fst ks
+    encrypt "m" pub
+
+plaintext :: IO String
+plaintext = do
+    ks <- keys
+    ct <- ciphertext
+    let priv = snd ks
+    return $ decrypt ct priv
+
+main = keys >>= (\key -> print $ n key) . fst
+
+-----------------------------
+--  Encoding and decoding  --
+-----------------------------
+
+-- Searches for string inside another string and returns index
 indexOf :: String -> String -> Maybe Int
 indexOf sub str = findIndex (isPrefixOf sub) (tails str)
 
@@ -114,18 +166,6 @@ chunks :: Int -> String -> [String]
 chunks n str = case splitAt n str of
                  (a, b) | null a    -> []
                         | otherwise -> a : chunks n b
-
---encode :: String -> [Integer]
---encode = map (fromIntegral . ord)
---
---decode :: [Integer] -> String
---decode = map (chr . fromIntegral)
---
---encrypt :: String -> Key -> [Integer]
---encrypt plaintext (Public (e, n)) = map (\p -> modExp p e n 1) (encode plaintext)
---
---decrypt :: [Integer] -> Key -> [Integer]
---decrypt ciphertext (Private (d, n)) = map (\c -> modExp c d n 1) ciphertext
 
 decToHex :: (Show a, Integral a) => a -> String
 decToHex x = showIntAtBase 16 intToDigit x ""
@@ -146,8 +186,8 @@ bytesToInt (x:xs) = c * (16 ^ length xs) + bytesToInt xs
     where c = hexToDec [x]
 
 -- Armours hex-encoded bytes with random padding according to PKCS#1 v1.5.
--- The scheme pads the bytes to match the modulus size. For RSA keys of
--- bitlength 1024, this means padding to 64 bytes.
+-- The scheme pads bytes to match the modulus size. For RSA keys of bit-length
+-- 1024, this means padding to 64 (1024 / 16) bytes.
 -- The byte `02` indicates that the padding scheme is operating in mode 2.
 -- The byte `FF` signifies the start of the plaintext.
 pad :: [String] -> Int -> IO [String]
@@ -159,26 +199,26 @@ pad xs bits = do
     let randBytes = map decToHex randInts
     return $ "02" : randBytes ++ ["ff"] ++ xs
 
--- Let plaintext = "key"
+-- Let plaintext = "key", key size = 96 bits
 -- 1) convert to bytes -> ["6b","65","79"]
--- 2) add padding      -> ["02,"e6","ff","6b","65","79"] (96-bit key)
--- 3) concat to hex    -> 0x02e6ff6b6579
+-- 2) add padding      -> ["02,"e6","ff","6b","65","79"] (96/16 = 6)
+-- 3) concat to hex    -> 02e6ff6b6579
 -- 4) convert to int   -> 3191150962041
 encode :: String -> Int -> IO Integer
-encode str keysize = do
-    padded <- pad (bytes str) keysize
+encode str keySize = do
+    padded <- pad (bytes str) keySize
     let byteStr = concat padded
     return $ bytesToInt byteStr
 
--- Reverses encoding. First removes padding (all bytes to "ff") then converts
--- numbers back to ASCII.
+-- Reverses encoding. First removes padding (all symbols up to and including
+-- "ff") then converts remaining bytes back to ASCII
 decode :: Integer -> String
 decode x = do
     let hex   = decToHex x
         unpad = (\x -> drop (x + 2) hex) <$> indexOf "ff" hex
         bytes = chunks 2 <$> unpad
         dec   = map hexToDec <$> bytes
-        key   = map (chr . fromIntegral) <$> dec
-    case key of
+        ascii = map (chr . fromIntegral) <$> dec
+    case ascii of
       Just k  -> k
       Nothing -> error "Decode failed"
