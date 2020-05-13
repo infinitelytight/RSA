@@ -35,3 +35,15 @@ main = hspec $ do
     it "decodes key with padding" $ do
       let encoded = 11709360739743588 -- 0299999ff707764 in decimal
       decode encoded `shouldBe` str
+
+  describe "Primality testing" $ do
+    it "correctly tests large primes" $ do
+      let p = 2147483647
+      isProbablePrime p `shouldBe` True
+      let p = 4547337172376300111955330758342147474062293202868155909489
+      isProbablePrime p `shouldBe` True
+    it "correctly tests large pseudoprimes" $ do
+      let p = 4547337172376300111955330758342147474062293202868155909393
+      isProbablePrime p `shouldBe` False
+      let p = 47362882341088596725068562696893704769436677460225591859092704246296157080253
+      isProbablePrime p `shouldBe` False

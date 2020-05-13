@@ -4,6 +4,7 @@ import Data.Char
 import System.Random
 import Numeric
 import Data.List
+import MillerRabin
 
 -----------------------------
 --  Mathematics functions  --
@@ -49,12 +50,23 @@ isPrime k | k < 2     = False
           | otherwise = null [x | x <- [2..isqrt k], k `mod` x == 0]
     where isqrt = floor . sqrt . fromIntegral
 
+-- Primality test with Miller-Rabin algorithm
+isProbablePrime :: Integer -> Bool
+isProbablePrime x = all (== True) $ map (millerRabinPrimality x) witnesses
+    -- A witness should be randomly chosen in the range [2, x - 1], however,
+    -- having multiple witnesses increases the accuracy of the test to an
+    -- adequate level so using constants here is sufficient
+    where witnesses = [2,325,9375,28178,450775,9780504,1795265022]
+
 -- Generates random n-bit prime
 randPrime :: Int -> IO Integer
 randPrime n = do
-    -- Integer is signed, so max value for n-bit prime is 2^n - 1
-    r <- randomRIO (2^(n - 1), 2^n - 1)
-    if (isPrime r) then return r else randPrime n
+    -- Integer is signed, so upper bound for n-bit prime is 2^n - 1
+    let upper = 2^n - 1
+    -- Lower bound ensures n is always n bits rather than n-1 bits
+    let lower = ceiling $ sqrt 2 * 2^(n - 1)
+    r <- randomRIO (lower, upper)
+    if (isProbablePrime r) then return r else randPrime n
 
 -- Random integer between `low` and `high` inclusive
 randInt :: Int -> Int -> IO Int
@@ -118,8 +130,6 @@ bitLength x = floor $ (logBase 2 i) + 1
 encrypt :: String -> Key -> IO Integer
 encrypt plaintext (Public e n) = do
     let keySize = bitLength n
-    print $ bitLength n
-    -- TODO
     paddedMsg <- encode plaintext keySize
     let ciphertext = modExp paddedMsg e n 1
     return ciphertext
@@ -133,7 +143,7 @@ decrypt ciphertext (Private d n) = decode $ modExp ciphertext d n 1
 ---------------
 
 keys :: IO (Key, Key)
-keys = keyPair 32
+keys = keyPair 256
 
 password :: String
 password = "m"
@@ -151,7 +161,7 @@ plaintext = do
     let priv = snd ks
     return $ decrypt ct priv
 
-main = keys >>= (\key -> print $ n key) . fst
+--main = keys >>= (\key -> print . bitLength $ n key) . fst
 
 -----------------------------
 --  Encoding and decoding  --
