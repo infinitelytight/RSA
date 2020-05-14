@@ -50,13 +50,13 @@ isPrime k | k < 2     = False
           | otherwise = null [x | x <- [2..isqrt k], k `mod` x == 0]
     where isqrt = floor . sqrt . fromIntegral
 
--- Primality test with Miller-Rabin algorithm
-isProbablePrime :: Integer -> Bool
-isProbablePrime x = all (== True) $ map (millerRabinPrimality x) witnesses
-    -- A witness should be randomly chosen in the range [2, x - 1], however,
-    -- having multiple witnesses increases the accuracy of the test to an
-    -- adequate level so using constants here is sufficient
-    where witnesses = [2,325,9375,28178,450775,9780504,1795265022]
+-- Uses Miller-Rabin algorithm with five rounds
+isProbablePrime :: Integer -> IO Bool
+isProbablePrime x = do
+    let rs = replicate 5 (randomRIO (2, x - 1))
+    witnesses <- sequence rs
+    let ts = map (millerRabinPrimality x) witnesses
+    return $ all (== True) ts
 
 -- Generates random n-bit prime
 randPrime :: Int -> IO Integer
@@ -66,7 +66,8 @@ randPrime n = do
     -- Lower bound ensures n is always n bits rather than n-1 bits
     let lower = ceiling $ sqrt 2 * 2^(n - 1)
     r <- randomRIO (lower, upper)
-    if (isProbablePrime r) then return r else randPrime n
+    t <- isProbablePrime r
+    if t then return r else randPrime n
 
 -- Random integer between `low` and `high` inclusive
 randInt :: Int -> Int -> IO Int
@@ -82,7 +83,8 @@ data Key = Public  { e :: Integer, n :: Integer }
 
 -- Public key exponent, e, is coprime to λ(n) (e is usually set to 65,537)
 pubExp :: Integer -> Integer
-pubExp m = head [n | n <- [3..m - 1] , coprime n m]
+--pubExp m = head [n | n <- [3..m - 1] , coprime n m]
+pubExp m = 65537
 
 -- Private key exponent, d. This is the modular multiplicative inverse of
 -- `e mod λ(n)`, that is, `d = (1 / e) mod λ(n)`. Since e and λ(n) are coprime,
@@ -130,38 +132,13 @@ bitLength x = floor $ (logBase 2 i) + 1
 encrypt :: String -> Key -> IO Integer
 encrypt plaintext (Public e n) = do
     let keySize = bitLength n
-    paddedMsg <- encode plaintext keySize
-    let ciphertext = modExp paddedMsg e n 1
+    padded <- encode plaintext keySize
+    let ciphertext = modExp padded e n 1
     return ciphertext
 
 -- Reverses encryption using private key
 decrypt :: Integer -> Key -> String
 decrypt ciphertext (Private d n) = decode $ modExp ciphertext d n 1
-
----------------
---  Testing  --
----------------
-
-keys :: IO (Key, Key)
-keys = keyPair 256
-
-password :: String
-password = "m"
-
-ciphertext :: IO Integer
-ciphertext = do
-    ks <- keys
-    let pub = fst ks
-    encrypt "m" pub
-
-plaintext :: IO String
-plaintext = do
-    ks <- keys
-    ct <- ciphertext
-    let priv = snd ks
-    return $ decrypt ct priv
-
---main = keys >>= (\key -> print . bitLength $ n key) . fst
 
 -----------------------------
 --  Encoding and decoding  --
@@ -225,8 +202,8 @@ encode str keySize = do
 decode :: Integer -> String
 decode x = do
     let hex   = decToHex x
-        unpad = (\x -> drop (x + 2) hex) <$> indexOf "ff" hex
-        bytes = chunks 2 <$> unpad
+        raw   = (\x -> drop (x + 2) hex) <$> indexOf "ff" hex
+        bytes = chunks 2 <$> raw
         dec   = map hexToDec <$> bytes
         ascii = map (chr . fromIntegral) <$> dec
     case ascii of

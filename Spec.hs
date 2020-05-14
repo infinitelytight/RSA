@@ -6,44 +6,92 @@ import RSA
 
 main :: IO ()
 main = hspec $ do
-  let str = "pwd"
-      hex = bytes str
-      bitLen = 256
-      byteLen = bitLen `div` 16
-      padByteLen = byteLen - (length hex)
-      padded = pad hex bitLen
+  let keySize = 256                   -- Key size in bits
+      keySizeBytes = keySize `div` 16 -- Key size in bytes
+
+      plaintext = "pwd"
+      hex = bytes plaintext
+      padSizeBytes = keySizeBytes - (length hex) -- Number of padding bytes
+      padded = pad hex keySize
 
   describe "Encoding" $ do
-    it "converts to bytes" $ do
+    it "converts string to hex-notation bytes" $ do
       hex `shouldBe` ["70","77","64"]
     it "adds padding header" $ do
       head <$> padded `shouldReturn` "02"
     it "adds padding stop symbol" $ do
-      head . drop (padByteLen - 1) <$> padded `shouldReturn` "ff"
-    it "puts string at end of encoded message" $ do
-      drop padByteLen <$> padded `shouldReturn` hex
-    it "produces correct key size" $ do
-      length <$> padded `shouldReturn` byteLen
+      head . drop (padSizeBytes - 1) <$> padded `shouldReturn` "ff"
+    it "puts plaintext string at end of encoded message" $ do
+      drop padSizeBytes <$> padded `shouldReturn` hex
+    it "produces correct ciphertext size" $ do
+      length <$> padded `shouldReturn` keySizeBytes
     it "encodes key to integer" $ do
       -- This key is deterministic since it is too short to have padding
-      encode str 32 `shouldReturn` bytesToInt ("02ff" ++ (concat hex))
+      encode plaintext 32 `shouldReturn` bytesToInt ("02ff" ++ (concat hex))
 
   describe "Decoding" $ do
-    it "decodes key" $ do
+    it "decodes message" $ do
       let encoded = 12875495268 -- 02ff707764 in decimal
-      decode encoded `shouldBe` str
-    it "decodes key with padding" $ do
+      decode encoded `shouldBe` plaintext
+    it "decodes message with padding" $ do
       let encoded = 11709360739743588 -- 0299999ff707764 in decimal
-      decode encoded `shouldBe` str
+      decode encoded `shouldBe` plaintext
 
   describe "Primality testing" $ do
     it "correctly tests large primes" $ do
       let p = 2147483647
-      isProbablePrime p `shouldBe` True
+      isProbablePrime p `shouldReturn` True
       let p = 4547337172376300111955330758342147474062293202868155909489
-      isProbablePrime p `shouldBe` True
+      isProbablePrime p `shouldReturn` True
     it "correctly tests large pseudoprimes" $ do
       let p = 4547337172376300111955330758342147474062293202868155909393
-      isProbablePrime p `shouldBe` False
+      isProbablePrime p `shouldReturn` False
       let p = 47362882341088596725068562696893704769436677460225591859092704246296157080253
-      isProbablePrime p `shouldBe` False
+      isProbablePrime p `shouldReturn` False
+
+  describe "Encryption" $ do
+    -- Since key is short (64 bits), the encoded message will not have padding,
+    -- so encryption and decryption is testable because it is deterministic
+    let pub = Public {e = 3, n = 16525003591035973849}
+        priv = Private {d = 2754167263817553827, n = 16525003591035973849}
+
+    -- String "pwd" in hex = 02ff707764 => in decimal = 12875495268
+        plaintext = "pwd"
+        dec = 12875495268
+    -- Manual encryption
+        ciphertext = modExp dec (e pub) (n pub) 1
+    -- Automated encryption
+        encrypted = encrypt plaintext pub
+
+    it "encrypts unpadded message" $ do
+      encrypted `shouldReturn` ciphertext
+    it "decrypts unpadded message" $ do
+      let decrypted = encrypted >>= \ct -> return $ decrypt ct priv
+      decrypted `shouldReturn` plaintext
+
+    -- Longer 128-bit key
+    let pub = Public {e = 7, n = 251515307574106143670689697734577448081}
+        priv = Private {d = 5389613733730845935120800346634140743,
+                        n = 251515307574106143670689697734577448081}
+        encrypted = encrypt plaintext pub
+        decrypted = encrypted >>= \ct -> return $ decrypt ct priv
+
+    -- Since there is random padding here we can only test the final outcome
+    it "decrypts padded message" $ do
+      decrypted `shouldReturn` plaintext
+
+    it "encrypts using 1024 bit keys" $ do
+      keys <- keyPair 1024
+      let pub = fst keys
+          priv = snd keys
+          encrypted = encrypt plaintext pub
+          decrypted = encrypted >>= \ct -> return $ decrypt ct priv
+      decrypted `shouldReturn` plaintext
+
+    it "encrypts using 2048 bit keys" $ do
+      keys <- keyPair 2048
+      let pub = fst keys
+          priv = snd keys
+          encrypted = encrypt plaintext pub
+          decrypted = encrypted >>= \ct -> return $ decrypt ct priv
+      decrypted `shouldReturn` plaintext
