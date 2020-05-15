@@ -2,12 +2,15 @@ import Test.Hspec
 import Test.QuickCheck
 import Control.Exception (evaluate)
 
+import Encoding
+import Keys
+import Math
 import RSA
 
 main :: IO ()
 main = hspec $ do
-  let keySize = 256                   -- Key size in bits
-      keySizeBytes = keySize `div` 16 -- Key size in bytes
+  let keySize = 256
+      keySizeBytes = keySize `div` 16
 
       plaintext = "pwd"
       hex = bytes plaintext
@@ -31,10 +34,12 @@ main = hspec $ do
 
   describe "Decoding" $ do
     it "decodes message" $ do
-      let encoded = 12875495268 -- 02ff707764 in decimal
+      -- "key" in hex (without random padding) = 02ff707764 => in decimal:
+      let encoded = 12875495268
       decode encoded `shouldBe` plaintext
     it "decodes message with padding" $ do
-      let encoded = 11709360739743588 -- 0299999ff707764 in decimal
+      -- "key" in hex (with 99999 as padding) = 0299999ff707764 => in decimal:
+      let encoded = 11709360739743588
       decode encoded `shouldBe` plaintext
 
   describe "Primality testing" $ do
@@ -82,16 +87,14 @@ main = hspec $ do
 
     it "encrypts using 1024 bit keys" $ do
       keys <- keyPair 1024
-      let pub = fst keys
-          priv = snd keys
-          encrypted = encrypt plaintext pub
-          decrypted = encrypted >>= \ct -> return $ decrypt ct priv
+      let (pub,priv) = keys
+          encrypted  = encrypt plaintext pub
+          decrypted  = encrypted >>= \ct -> return $ decrypt ct priv
       decrypted `shouldReturn` plaintext
 
     it "encrypts using 2048 bit keys" $ do
       keys <- keyPair 2048
-      let pub = fst keys
-          priv = snd keys
-          encrypted = encrypt plaintext pub
-          decrypted = encrypted >>= \ct -> return $ decrypt ct priv
+      let (pub,priv) = keys
+          encrypted  = encrypt plaintext pub
+          decrypted  = encrypted >>= \ct -> return $ decrypt ct priv
       decrypted `shouldReturn` plaintext

@@ -16,7 +16,10 @@ build-type:          Simple
 
 executable rsa
   main-is:             Main.hs
-  other-modules:       MillerRabin
+  other-modules:       MillerRabin,
+                       Encoding,
+                       Math,
+                       Keys
   -- other-extensions:
   build-depends:       base >=4.14 && <4.15,
                        random
@@ -30,6 +33,9 @@ test-suite test
                        random,
                        hspec,
                        QuickCheck
-  other-modules:       RSA
-                       MillerRabin
+  other-modules:       RSA,
+                       MillerRabin,
+                       Math,
+                       Encoding,
+                       Keys
   default-language:    Haskell2010
