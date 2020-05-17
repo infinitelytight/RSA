@@ -6,6 +6,7 @@ import Encoding
 import Keys
 import Math
 import RSA
+import Signature
 
 main :: IO ()
 main = hspec $ do
@@ -98,3 +99,13 @@ main = hspec $ do
           encrypted  = encrypt plaintext pub
           decrypted  = encrypted >>= \ct -> return $ decrypt ct priv
       decrypted `shouldReturn` plaintext
+
+  describe "Signatures" $ do
+    it "correctly tests large primes" $ do
+      let plaintext = "a message that should be hashed and signed"
+      keys <- keyPair 512
+      let (pub,priv) = keys
+          md = hash plaintext
+          signature = sign md priv
+          verified = verify signature pub md
+      verified `shouldBe` True

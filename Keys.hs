@@ -49,6 +49,6 @@ keyPair keySize = do
     return $ (Public {e = e, n = n}, Private {d = d , n = n})
 
 -- Returns the length of a key in bits, used to determine key size from modulus.
-bitLength :: Integer -> Int
-bitLength x = floor $ (logBase 2 i) + 1
-    where i = fromIntegral x
+bitLength :: Key -> Int
+bitLength (Public _ n) = floor $ (logBase 2 i) + 1
+    where i = fromIntegral n

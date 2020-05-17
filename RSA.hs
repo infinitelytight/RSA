@@ -9,7 +9,7 @@ import Math
 -- symmetric-key algorithm, like AES, to encrypt sensitive data.
 encrypt :: String -> Key -> IO Integer
 encrypt plaintext (Public e n) = do
-    let keySize = bitLength n
+    let keySize = bitLength (Public e n)
     padded <- encode plaintext keySize
     let ciphertext = modExp padded e n 1
     return ciphertext
