@@ -1,16 +1,54 @@
 module Main where
 
+import Encoding
 import Keys
+import RSA
 import Signature
 
-keys = keyPair 512
-plaintext = "pwd"
+----------------------
+--  Sample program  --
+----------------------
+
+import System.Random
+
+alice :: IO (Key, Key)
+alice = keyPair 1024
+
+bob :: IO (Key, Key)
+bob = keyPair 1024
+
+plaintext = "password"
 
 main :: IO ()
 main = do
-    keys <- keyPair 512
-    let (pub,priv) = keys
-        md = hash plaintext
-        signature = sign md priv
-        verified = verify signature pub md
-    print verified
+    putStrLn $ "Plaintext: " ++ plaintext
+
+    putStrLn "\nConverted to hex"
+    print $ bytes plaintext
+
+    a <- alice
+    b <- bob
+    let (aPub, aPriv) = a
+        (bPub, bPriv) = b
+        aKeySize     = bitLength aPub
+
+    putStrLn "\nEncoded according to padding scheme"
+    pad (bytes plaintext) aKeySize >>= print
+
+    putStrLn "\nAs decimal"
+    encode plaintext aKeySize >>= print
+
+    ciphertext <- encrypt plaintext bPub
+    putStrLn "\nEncrypted with Bob's public key"
+    print ciphertext
+
+    let md        = hash plaintext
+        signature = sign md aPriv
+    putStrLn "\nMessage digest signed by Alice using her private key"
+    print signature
+
+    putStrLn "\nDecrypted with Bob's private key"
+    print $ decrypt ciphertext bPriv
+
+    putStrLn "\nSignature verified with Alice's public key"
+    print $ verify signature aPub md
